@@ -6,24 +6,63 @@ import concurrent.futures
 
 app = Flask(__name__)
 
-COMMON_PORTS = [22, 80, 443, 8080, 5000]
+# কমন কিছু সিকিউরিটি ও সার্ভিস পোর্ট
+COMMON_PORTS = {
+    21: 'FTP',
+    22: 'SSH',
+    80: 'HTTP',
+    443: 'HTTPS',
+    8080: 'HTTP-Alt',
+    5000: 'Flask/HTTP',
+    8000: 'HTTP-Dev'
+}
 
-def check_open_ports(ip):
-    open_ports = []
-    for port in COMMON_PORTS:
+def grab_banner(ip, port):
+    """ওপেন পোর্টের ব্যানার ও সার্ভিস নাম বের করার ফাংশন"""
+    service_name = COMMON_PORTS.get(port, 'Unknown')
+    banner_info = service_name
+    
+    try:
+        sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        sock.settimeout(0.5)
+        sock.connect((ip, port))
+        
+        # HTTP পোর্টের জন্য রিকোয়েস্ট পাঠিয়ে ব্যানার নেওয়া
+        if port in [80, 8080, 5000, 8000]:
+            sock.sendall(b"HEAD / HTTP/1.1\r\nHost: " + ip.encode() + b"\r\n\r\n")
+        
+        banner = sock.recv(1024).decode('utf-8', errors='ignore').strip()
+        sock.close()
+
+        # সার্ভার হেডার থেকে সার্ভিস চেনা
+        if banner:
+            for line in banner.splitlines():
+                if line.lower().startswith('server:'):
+                    server_name = line.split(':', 1)[1].strip()
+                    banner_info = f"{service_name} ({server_name})"
+                    break
+    except Exception:
+        pass
+        
+    return f"{port}/{banner_info}"
+
+def check_open_ports_and_services(ip):
+    open_services = []
+    for port in COMMON_PORTS.keys():
         try:
             sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
             sock.settimeout(0.2)
             result = sock.connect_ex((ip, port))
-            if result == 0:
-                open_ports.append(port)
             sock.close()
+            
+            if result == 0:
+                service_details = grab_banner(ip, port)
+                open_services.append(service_details)
         except Exception:
             pass
-    return open_ports
+    return open_services
 
 def get_device_name(ip):
-    # লোকাল পিসির হোস্টনেম
     try:
         if ip == '127.0.0.1' or ip == socket.gethostbyname(socket.gethostname()):
             return f"This Device ({socket.gethostname()})"
@@ -36,7 +75,6 @@ def get_device_name(ip):
     except Exception:
         pass
 
-    # আইপি প্যাটার্ন অনুযায়ী স্মার্টফোন লেবেল
     return "Mobile / Smart Device"
 
 def ping_and_inspect(ip):
@@ -47,13 +85,13 @@ def ping_and_inspect(ip):
         
         if output.returncode == 0:
             dev_name = get_device_name(ip)
-            open_ports = check_open_ports(ip)
+            open_services = check_open_ports_and_services(ip)
             
             return {
                 'ip': ip, 
                 'latency': latency, 
                 'hostname': dev_name,
-                'open_ports': open_ports
+                'open_services': open_services
             }
     except Exception:
         pass
@@ -94,11 +132,11 @@ def get_network_data():
             continue
             
         node_id = f"dev_{idx}"
-        ports_str = ", ".join(map(str, dev['open_ports'])) if dev['open_ports'] else "None"
+        services_str = ", ".join(dev['open_services']) if dev['open_services'] else "None"
         
         nodes.append({
             'id': node_id,
-            'label': f"{dev['hostname']}\nIP: {dev['ip']}\nPing: {dev['latency']} ms\nOpen Ports: {ports_str}",
+            'label': f"{dev['hostname']}\nIP: {dev['ip']}\nPing: {dev['latency']} ms\nServices: {services_str}",
             'color': '#f59e0b',
             'shape': 'dot',
             'size': 20
@@ -113,3 +151,4 @@ def get_network_data():
 
 if __name__ == '__main__':
     app.run(debug=True, host='0.0.0.0', port=5000)
+                    
