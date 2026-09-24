@@ -1,21 +1,32 @@
 from flask import Flask, render_template, jsonify
-from scapy.all import ARP, Ether, srp
+import socket
+import subprocess
+import concurrent.futures
 
 app = Flask(__name__)
 
-def scan_network(ip_range):
-    # ARP প্রোটোকল দিয়ে ডিভাইসের IP ও MAC খোঁজা
-    arp = ARP(pdst=ip_range)
-    ether = Ether(dst="ff:ff:ff:ff:ff:ff")
-    packet = ether / arp
+def ping_ip(ip):
+    # Ping পাঠিয়া ডিভাইস সক্রিয় আছে কিনা পরীক্ষা করা (অ্যান্ড্রয়েড ফ্রেন্ডলি)
+    try:
+        output = subprocess.run(['ping', '-c', '1', '-w', '1', ip], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        if output.returncode == 0:
+            return ip
+    except Exception:
+        pass
+    return None
 
-    # প্যাকেট পাঠানো ও রেসপন্স সংগ্রহ
-    result = srp(packet, timeout=2, verbose=0)[0]
-
+def scan_network_native(subnet_prefix):
+    # ১ থেকে ২৫৪ পর্যন্ত আইপি দ্রুত স্ক্যান করার জন্য মাল্টি-থ্রেডিং ব্যবহার
     devices = []
-    for sent, received in result:
-        devices.append({'ip': received.psrc, 'mac': received.hwsrc})
+    ip_list = [f"{subnet_prefix}.{i}" for i in range(1, 255)]
     
+    with concurrent.futures.ThreadPoolExecutor(max_workers=50) as executor:
+        results = executor.map(ping_ip, ip_list)
+        
+        for ip in results:
+            if ip:
+                devices.append({'ip': ip, 'mac': 'N/A (Android Restriction)'})
+                
     return devices
 
 @app.route('/')
@@ -24,8 +35,9 @@ def index():
 
 @app.route('/api/network-data')
 def get_network_data():
-    # রাউটারের সাবনেট অনুযায়ী IP রেঞ্জ দিন (প্রয়োজনে 192.168.1.1/24 করতে পারেন)
-    devices = scan_network('192.168.0.1/24') 
+    # আপনার লোকাল নেটওয়ার্কের প্রথম তিনটি সংখ্যা (যেমন: 192.168.0)
+    subnet_prefix = '192.168.0'
+    devices = scan_network_native(subnet_prefix)
     
     nodes = [{'id': 'router', 'label': 'Gateway Router', 'group': 'router'}]
     edges = []
@@ -34,7 +46,7 @@ def get_network_data():
         node_id = f"dev_{idx}"
         nodes.append({
             'id': node_id,
-            'label': f"IP: {dev['ip']}\nMAC: {dev['mac']}",
+            'label': f"IP: {dev['ip']}",
             'group': 'device'
         })
         edges.append({'from': 'router', 'to': node_id})
@@ -43,3 +55,4 @@ def get_network_data():
 
 if __name__ == '__main__':
     app.run(debug=True, host='0.0.0.0', port=5000)
+        
