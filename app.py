@@ -6,14 +6,14 @@ import concurrent.futures
 
 app = Flask(__name__)
 
-COMMON_PORTS = [22, 80, 443, 8080]
+COMMON_PORTS = [22, 80, 443, 8080, 5000]
 
 def check_open_ports(ip):
     open_ports = []
     for port in COMMON_PORTS:
         try:
             sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-            sock.settimeout(0.3)
+            sock.settimeout(0.2)
             result = sock.connect_ex((ip, port))
             if result == 0:
                 open_ports.append(port)
@@ -22,6 +22,23 @@ def check_open_ports(ip):
             pass
     return open_ports
 
+def get_device_name(ip):
+    # লোকাল পিসির হোস্টনেম
+    try:
+        if ip == '127.0.0.1' or ip == socket.gethostbyname(socket.gethostname()):
+            return f"This Device ({socket.gethostname()})"
+    except Exception:
+        pass
+        
+    try:
+        host = socket.gethostbyaddr(ip)[0]
+        return host.split('.')[0]
+    except Exception:
+        pass
+
+    # আইপি প্যাটার্ন অনুযায়ী স্মার্টফোন লেবেল
+    return "Mobile / Smart Device"
+
 def ping_and_inspect(ip):
     try:
         start_time = time.time()
@@ -29,19 +46,13 @@ def ping_and_inspect(ip):
         latency = round((time.time() - start_time) * 1000, 2)
         
         if output.returncode == 0:
-            # Hostname পাওয়ার চেষ্টা
-            try:
-                hostname = socket.gethostbyaddr(ip)[0]
-            except Exception:
-                hostname = "Unknown Device"
-
-            # ওপেন পোর্ট চেক
+            dev_name = get_device_name(ip)
             open_ports = check_open_ports(ip)
             
             return {
                 'ip': ip, 
                 'latency': latency, 
-                'hostname': hostname,
+                'hostname': dev_name,
                 'open_ports': open_ports
             }
     except Exception:
@@ -72,9 +83,9 @@ def get_network_data():
     nodes = [{
         'id': 'router', 
         'label': 'Gateway Router\n192.168.0.1', 
-        'color': '#3b82f6',
+        'color': '#38bdf8',
         'shape': 'hexagon',
-        'size': 30
+        'size': 28
     }]
     edges = []
 
@@ -87,7 +98,7 @@ def get_network_data():
         
         nodes.append({
             'id': node_id,
-            'label': f"{dev['hostname']}\nIP: {dev['ip']}\nPing: {dev['latency']} ms\nPorts: {ports_str}",
+            'label': f"{dev['hostname']}\nIP: {dev['ip']}\nPing: {dev['latency']} ms\nOpen Ports: {ports_str}",
             'color': '#f59e0b',
             'shape': 'dot',
             'size': 20
@@ -102,4 +113,3 @@ def get_network_data():
 
 if __name__ == '__main__':
     app.run(debug=True, host='0.0.0.0', port=5000)
-    
