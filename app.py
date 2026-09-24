@@ -1,31 +1,33 @@
 from flask import Flask, render_template, jsonify
-import socket
 import subprocess
+import time
 import concurrent.futures
 
 app = Flask(__name__)
 
 def ping_ip(ip):
-    # Ping পাঠিয়া ডিভাইস সক্রিয় আছে কিনা পরীক্ষা করা (অ্যান্ড্রয়েড ফ্রেন্ডলি)
     try:
+        start_time = time.time()
+        # Ping পাঠিয়া ডিভাইস সক্রিয় আছে কিনা এবং লেটেন্সি কত তা জানা
         output = subprocess.run(['ping', '-c', '1', '-w', '1', ip], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        latency = round((time.time() - start_time) * 1000, 2)  # Milliseconds
+        
         if output.returncode == 0:
-            return ip
+            return {'ip': ip, 'latency': latency}
     except Exception:
         pass
     return None
 
 def scan_network_native(subnet_prefix):
-    # ১ থেকে ২৫৪ পর্যন্ত আইপি দ্রুত স্ক্যান করার জন্য মাল্টি-থ্রেডিং ব্যবহার
     devices = []
     ip_list = [f"{subnet_prefix}.{i}" for i in range(1, 255)]
     
     with concurrent.futures.ThreadPoolExecutor(max_workers=50) as executor:
         results = executor.map(ping_ip, ip_list)
         
-        for ip in results:
-            if ip:
-                devices.append({'ip': ip, 'mac': 'N/A (Android Restriction)'})
+        for res in results:
+            if res:
+                devices.append(res)
                 
     return devices
 
@@ -35,19 +37,27 @@ def index():
 
 @app.route('/api/network-data')
 def get_network_data():
-    # আপনার লোকাল নেটওয়ার্কের প্রথম তিনটি সংখ্যা (যেমন: 192.168.0)
     subnet_prefix = '192.168.0'
     devices = scan_network_native(subnet_prefix)
     
-    nodes = [{'id': 'router', 'label': 'Gateway Router', 'group': 'router'}]
+    # Gateway Router Node (Blue color)
+    nodes = [{
+        'id': 'router', 
+        'label': 'Gateway Router\n(192.168.0.1)', 
+        'color': '#4285F4',
+        'font': {'color': '#ffffff'}
+    }]
     edges = []
 
     for idx, dev in enumerate(devices):
+        if dev['ip'] == f"{subnet_prefix}.1":
+            continue  # Router ইতোমধ্যে যোগ করা হয়েছে
+            
         node_id = f"dev_{idx}"
         nodes.append({
             'id': node_id,
-            'label': f"IP: {dev['ip']}",
-            'group': 'device'
+            'label': f"IP: {dev['ip']}\nPing: {dev['latency']} ms",
+            'color': '#FBBC05'  # Connected device color (Yellow)
         })
         edges.append({'from': 'router', 'to': node_id})
 
@@ -55,4 +65,3 @@ def get_network_data():
 
 if __name__ == '__main__':
     app.run(debug=True, host='0.0.0.0', port=5000)
-        
