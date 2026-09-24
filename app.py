@@ -6,35 +6,37 @@ import concurrent.futures
 
 app = Flask(__name__)
 
-# কমন কিছু সিকিউরিটি ও সার্ভিস পোর্ট
 COMMON_PORTS = {
     21: 'FTP',
     22: 'SSH',
+    23: 'Telnet',
+    25: 'SMTP',
+    53: 'DNS',
     80: 'HTTP',
+    110: 'POP3',
+    143: 'IMAP',
     443: 'HTTPS',
+    445: 'SMB',
     8080: 'HTTP-Alt',
     5000: 'Flask/HTTP',
     8000: 'HTTP-Dev'
 }
 
 def grab_banner(ip, port):
-    """ওপেন পোর্টের ব্যানার ও সার্ভিস নাম বের করার ফাংশন"""
-    service_name = COMMON_PORTS.get(port, 'Unknown')
+    service_name = COMMON_PORTS.get(port, 'Unknown Service')
     banner_info = service_name
     
     try:
         sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        sock.settimeout(0.5)
+        sock.settimeout(0.4)
         sock.connect((ip, port))
         
-        # HTTP পোর্টের জন্য রিকোয়েস্ট পাঠিয়ে ব্যানার নেওয়া
         if port in [80, 8080, 5000, 8000]:
             sock.sendall(b"HEAD / HTTP/1.1\r\nHost: " + ip.encode() + b"\r\n\r\n")
         
         banner = sock.recv(1024).decode('utf-8', errors='ignore').strip()
         sock.close()
 
-        # সার্ভার হেডার থেকে সার্ভিস চেনা
         if banner:
             for line in banner.splitlines():
                 if line.lower().startswith('server:'):
@@ -44,22 +46,30 @@ def grab_banner(ip, port):
     except Exception:
         pass
         
-    return f"{port}/{banner_info}"
+    return banner_info
+
+def check_single_port(args):
+    ip, port = args
+    try:
+        sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        sock.settimeout(0.3)
+        result = sock.connect_ex((ip, port))
+        sock.close()
+        
+        if result == 0:
+            service = grab_banner(ip, port)
+            return {'port': port, 'service': service}
+    except Exception:
+        pass
+    return None
 
 def check_open_ports_and_services(ip):
     open_services = []
-    for port in COMMON_PORTS.keys():
-        try:
-            sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-            sock.settimeout(0.2)
-            result = sock.connect_ex((ip, port))
-            sock.close()
-            
-            if result == 0:
-                service_details = grab_banner(ip, port)
-                open_services.append(service_details)
-        except Exception:
-            pass
+    quick_ports = [21, 22, 80, 443, 5000, 8080]
+    for port in quick_ports:
+        res = check_single_port((ip, port))
+        if res:
+            open_services.append(f"{res['port']}/{res['service']}")
     return open_services
 
 def get_device_name(ip):
@@ -123,7 +133,8 @@ def get_network_data():
         'label': 'Gateway Router\n192.168.0.1', 
         'color': '#38bdf8',
         'shape': 'hexagon',
-        'size': 28
+        'size': 28,
+        'ip': '192.168.0.1'
     }]
     edges = []
 
@@ -139,7 +150,8 @@ def get_network_data():
             'label': f"{dev['hostname']}\nIP: {dev['ip']}\nPing: {dev['latency']} ms\nServices: {services_str}",
             'color': '#f59e0b',
             'shape': 'dot',
-            'size': 20
+            'size': 20,
+            'ip': dev['ip']
         })
         edges.append({'from': 'router', 'to': node_id})
 
@@ -149,6 +161,20 @@ def get_network_data():
         'edges': edges
     })
 
+@app.route('/api/scan-ports/<ip>')
+def scan_device_ports(ip):
+    """১ থেকে ১০২৪ পোর্টে মাল্টি-থ্রেডেড স্পিড স্ক্যান"""
+    open_ports = []
+    ports_to_scan = [(ip, p) for p in range(1, 1025)]
+    
+    with concurrent.futures.ThreadPoolExecutor(max_workers=100) as executor:
+        results = executor.map(check_single_port, ports_to_scan)
+        for res in results:
+            if res:
+                open_ports.append(res)
+                
+    return jsonify({'ip': ip, 'open_ports': open_ports})
+
 if __name__ == '__main__':
     app.run(debug=True, host='0.0.0.0', port=5000)
-                    
+        
