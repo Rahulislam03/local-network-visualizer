@@ -5,37 +5,70 @@
     <title>Local Network Topology Mapper</title>
     <script type="text/javascript" src="https://unpkg.com/vis-network/standalone/umd/vis-network.min.js"></script>
     <style>
-        body { font-family: Arial, sans-serif; margin: 20px; text-align: center; }
+        body { font-family: Arial, sans-serif; margin: 20px; text-align: center; background-color: #f4f6f9; }
         #network-map {
             width: 100%;
-            height: 500px;
-            border: 2px solid #333;
-            border-radius: 8px;
-            background-color: #fafafa;
+            height: 520px;
+            border: 2px solid #ccc;
+            border-radius: 10px;
+            background-color: #ffffff;
+            margin-top: 15px;
         }
+        .btn {
+            background-color: #34a853;
+            color: white;
+            padding: 10px 20px;
+            border: none;
+            border-radius: 5px;
+            font-size: 16px;
+            cursor: pointer;
+        }
+        .btn:disabled { background-color: #a8a8a8; }
+        #status { font-weight: bold; margin-top: 10px; color: #555; }
     </style>
 </head>
 <body>
     <h2>Local Network Visualizer & Topology Mapper</h2>
+    <button id="scan-btn" class="btn" onclick="fetchNetworkData()">Refresh Scan</button>
+    <div id="status"></div>
     <div id="network-map"></div>
 
     <script>
-        fetch('/api/network-data')
-            .then(response => response.json())
-            .then(data => {
-                const container = document.getElementById('network-map');
-                const graphData = {
-                    nodes: new vis.DataSet(data.nodes),
-                    edges: new vis.DataSet(data.edges)
-                };
-                const options = {
-                    nodes: { shape: 'dot', size: 20, font: { size: 14 } },
-                    physics: { barnesHut: { gravitationalConstant: -2000 } }
-                };
-                new vis.Network(container, graphData, options);
-            })
-            .catch(err => console.error('Data loading error:', err));
+        let network = null;
+
+        function fetchNetworkData() {
+            const btn = document.getElementById('scan-btn');
+            const status = document.getElementById('status');
+            
+            btn.disabled = true;
+            status.innerText = "Scanning network, please wait...";
+
+            fetch('/api/network-data')
+                .then(response => response.json())
+                .then(data => {
+                    const container = document.getElementById('network-map');
+                    const graphData = {
+                        nodes: new vis.DataSet(data.nodes),
+                        edges: new vis.DataSet(data.edges)
+                    };
+                    const options = {
+                        nodes: { shape: 'dot', size: 22, font: { size: 14 } },
+                        physics: { barnesHut: { gravitationalConstant: -3000 } }
+                    };
+                    network = new vis.Network(container, graphData, options);
+                    
+                    status.innerText = "Scan completed!";
+                    btn.disabled = false;
+                })
+                .catch(err => {
+                    console.error('Error:', err);
+                    status.innerText = "Failed to load network data.";
+                    btn.disabled = false;
+                });
+        }
+
+        // পেজ লোড হওয়ার সাথে সাথে প্রথম স্ক্যান
+        window.onload = fetchNetworkData;
     </script>
 </body>
 </html>
-
