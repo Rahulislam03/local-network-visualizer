@@ -71,7 +71,7 @@
             const counter = document.getElementById('device-count');
             
             btn.disabled = true;
-            status.innerText = "Scanning devices and auditing open ports...";
+            status.innerText = "Scanning network & detecting port services/banners...";
 
             fetch('/api/network-data')
                 .then(response => response.json())
@@ -93,7 +93,7 @@
                     };
                     network = new vis.Network(container, graphData, options);
                     
-                    status.innerText = "Scan completed successfully!";
+                    status.innerText = "Scan & Banner Detection completed!";
                     btn.disabled = false;
                 })
                 .catch(err => {
