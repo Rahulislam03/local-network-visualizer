@@ -1,0 +1,41 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Local Network Topology Mapper</title>
+    <script type="text/javascript" src="https://unpkg.com/vis-network/standalone/umd/vis-network.min.js"></script>
+    <style>
+        body { font-family: Arial, sans-serif; margin: 20px; text-align: center; }
+        #network-map {
+            width: 100%;
+            height: 500px;
+            border: 2px solid #333;
+            border-radius: 8px;
+            background-color: #fafafa;
+        }
+    </style>
+</head>
+<body>
+    <h2>Local Network Visualizer & Topology Mapper</h2>
+    <div id="network-map"></div>
+
+    <script>
+        fetch('/api/network-data')
+            .then(response => response.json())
+            .then(data => {
+                const container = document.getElementById('network-map');
+                const graphData = {
+                    nodes: new vis.DataSet(data.nodes),
+                    edges: new vis.DataSet(data.edges)
+                };
+                const options = {
+                    nodes: { shape: 'dot', size: 20, font: { size: 14 } },
+                    physics: { barnesHut: { gravitationalConstant: -2000 } }
+                };
+                new vis.Network(container, graphData, options);
+            })
+            .catch(err => console.error('Data loading error:', err));
+    </script>
+</body>
+</html>
+
