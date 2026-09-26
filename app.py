@@ -22,6 +22,20 @@ COMMON_PORTS = {
     8000: 'HTTP-Dev'
 }
 
+def get_current_subnet():
+    """ডিভাইসটি বর্তমানে যে লোকাল নেটওয়ার্কে কানেক্টেড তার সাবনেট প্রিফিক্স (যেমন: 192.168.1) বের করে"""
+    try:
+        s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        # পাবলিক DNS IP-তে কানেক্ট করে লোকাল IP অ্যাড্রেস জানা
+        s.connect(("8.8.8.8", 80))
+        local_ip = s.getsockname()[0]
+        s.close()
+        # IP-এর প্রথম ৩টি অংশ নিয়ে Subnet Prefix গঠন (যেমন: 192.168.1.15 -> 192.168.1)
+        subnet_prefix = ".".join(local_ip.split(".")[:3])
+        return subnet_prefix
+    except Exception:
+        return "192.168.0"  # ব্যাকআপ হিসেবে ডিফল্ট আইপি
+
 def grab_banner(ip, port):
     service_name = COMMON_PORTS.get(port, 'Unknown Service')
     banner_info = service_name
@@ -125,21 +139,24 @@ def index():
 
 @app.route('/api/network-data')
 def get_network_data():
-    subnet_prefix = '192.168.0'
+    # ডাইনামিকভাবে কানেক্টেড নেটওয়ার্কের সাবনেট নেওয়া
+    subnet_prefix = get_current_subnet()
+    gateway_ip = f"{subnet_prefix}.1"
+    
     devices = scan_network_native(subnet_prefix)
     
     nodes = [{
         'id': 'router', 
-        'label': 'Gateway Router\n192.168.0.1', 
+        'label': f'Gateway Router\n{gateway_ip}', 
         'color': '#38bdf8',
         'shape': 'hexagon',
         'size': 28,
-        'ip': '192.168.0.1'
+        'ip': gateway_ip
     }]
     edges = []
 
     for idx, dev in enumerate(devices):
-        if dev['ip'] == f"{subnet_prefix}.1":
+        if dev['ip'] == gateway_ip:
             continue
             
         node_id = f"dev_{idx}"
@@ -177,4 +194,3 @@ def scan_device_ports(ip):
 
 if __name__ == '__main__':
     app.run(debug=True, host='0.0.0.0', port=5000)
-        
