@@ -2,6 +2,7 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Local Network Topology Mapper</title>
     <script type="text/javascript" src="https://unpkg.com/vis-network/standalone/umd/vis-network.min.js"></script>
     <style>
@@ -17,9 +18,10 @@
         .dashboard {
             display: flex;
             justify-content: center;
-            gap: 20px;
+            gap: 15px;
             margin-bottom: 15px;
             align-items: center;
+            flex-wrap: wrap;
         }
         .card {
             background-color: #1e293b;
@@ -27,6 +29,19 @@
             border-radius: 8px;
             border: 1px solid #334155;
             font-size: 16px;
+        }
+        .input-box {
+            padding: 10px 14px;
+            border-radius: 6px;
+            border: 1px solid #334155;
+            background-color: #1e293b;
+            color: #fff;
+            font-size: 14px;
+            outline: none;
+            width: 220px;
+        }
+        .input-box:focus {
+            border-color: #38bdf8;
         }
         #network-map {
             width: 100%;
@@ -90,7 +105,8 @@
     
     <div class="dashboard">
         <div class="card">Total Devices: <span id="device-count" style="color: #38bdf8; font-weight: bold;">0</span></div>
-        <button id="scan-btn" class="btn" onclick="fetchNetworkData()">Refresh Scan</button>
+        <input type="text" id="subnetInput" class="input-box" placeholder="Auto or 192.168.1 / 10.0.0.1">
+        <button id="scan-btn" class="btn" onclick="fetchNetworkData()">Scan Network</button>
     </div>
     
     <div id="status">Ready to scan. Tip: Double-click a device node for deep port scan (1-1024).</div>
@@ -122,11 +138,19 @@
             const btn = document.getElementById('scan-btn');
             const status = document.getElementById('status');
             const counter = document.getElementById('device-count');
+            const inputVal = document.getElementById('subnetInput').value.trim();
             
             btn.disabled = true;
-            status.innerText = "Scanning network & detecting services...";
 
-            fetch('/api/network-data')
+            let apiUrl = '/api/network-data';
+            if (inputVal) {
+                apiUrl += `?subnet=${encodeURIComponent(inputVal)}`;
+                status.innerText = `Scanning target network (${inputVal}) & detecting services...`;
+            } else {
+                status.innerText = "Scanning local network & detecting services...";
+            }
+
+            fetch(apiUrl)
                 .then(response => response.json())
                 .then(data => {
                     counter.innerText = data.total_devices;
@@ -145,6 +169,10 @@
                         edges: { color: '#475569', width: 2 },
                         physics: { barnesHut: { gravitationalConstant: -3500 } }
                     };
+                    
+                    if (network !== null) {
+                        network.destroy();
+                    }
                     network = new vis.Network(container, graphData, options);
                     
                     // Double Click Event to trigger Deep Port Scan
@@ -179,7 +207,6 @@
             modalStatus.innerText = "Auditing ports (1 - 1024) with 100 threads, please wait...";
             table.style.display = 'none';
             list.innerHTML = '';
-            modal.style.style = 'block';
             modal.style.display = 'block';
 
             fetch(`/api/scan-ports/${ip}`)
