@@ -22,16 +22,38 @@ COMMON_PORTS = {
     8000: 'HTTP-Dev'
 }
 
-def get_current_subnet():
-    """অটোমেটিক বর্তমান কানেক্টেড সাবনেট বের করার ব্যাকআপ ফাংশন"""
+def detect_active_local_ip():
+    """
+    মেশিনের একটিভ লোকাল IP এবং সাবনেট প্রিফিক্স স্বয়ংক্রিয়ভাবে খুঁজে বের করে।
+    এটি macOS এর routing table ব্যবহার করে সঠিক ইন্টারফেস থেকে IP নির্ণয় করে।
+    """
+    # পদ্ধতি ১: সকেট কানেকশন ট্রাই করা
     try:
         s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         s.connect(("8.8.8.8", 80))
         local_ip = s.getsockname()[0]
         s.close()
-        return ".".join(local_ip.split(".")[:3])
+        if not local_ip.startswith("127."):
+            subnet = ".".join(local_ip.split(".")[:3])
+            print(f"[+] Auto Detected IP: {local_ip} | Subnet: {subnet}")
+            return local_ip, subnet
     except Exception:
-        return "192.168.0"
+        pass
+
+    # পদ্ধতি ২: macOS `ifconfig` কমান্ড চালিয়ে IP খোঁজা (Fallback)
+    try:
+        cmd = "ifconfig | grep 'inet ' | grep -v '127.0.0.1' | awk '{print $2}'"
+        output = subprocess.check_output(cmd, shell=True).decode('utf-8').strip().splitlines()
+        for ip in output:
+            if ip and not ip.startswith("127."):
+                subnet = ".".join(ip.split(".")[:3])
+                print(f"[+] Fallback Detected IP: {ip} | Subnet: {subnet}")
+                return ip, subnet
+    except Exception:
+        pass
+
+    # ব্যাকআপ ডিফল্ট
+    return "192.168.0.100", "192.168.0"
 
 def grab_banner(ip, port):
     service_name = COMMON_PORTS.get(port, 'Unknown Service')
@@ -136,18 +158,21 @@ def index():
 
 @app.route('/api/network-data')
 def get_network_data():
-    # ইউজার যদি ম্যানুয়ালি IP বা Subnet পাস করে (যেমন: /api/network-data?subnet=10.0.0)
     manual_subnet = request.args.get('subnet')
-    manual_ip = request.args.get('ip')
     
-    if manual_subnet:
-        subnet_prefix = manual_subnet.strip()
-    elif manual_ip:
-        # যদি পুরো IP দেন (যেমন: 192.168.1.50) সেখান থেকে Subnet আলাদা করা
-        subnet_prefix = ".".join(manual_ip.strip().split(".")[:3])
+    # প্রথমে অটোমেটিক আইপি ও সাবনেট খুঁজে বের করবে
+    auto_ip, auto_subnet = detect_active_local_ip()
+
+    if manual_subnet and manual_subnet.strip():
+        val = manual_subnet.strip()
+        # যদি ইউজার পুরো IP লিখে পাঠায় (যেমন: 192.168.68.54)
+        if val.count('.') == 3:
+            subnet_prefix = ".".join(val.split(".")[:3])
+        else:
+            subnet_prefix = val
     else:
-        # কিছুই না দিলে স্বয়ংক্রিয়ভাবে কারেন্ট ওয়াইফাই নেটওয়ার্ক স্ক্যান করবে
-        subnet_prefix = get_current_subnet()
+        # ইনপুট ফাঁকা থাকলে অটো-ডিটেক্ট করা সাবনেট ব্যবহার করবে
+        subnet_prefix = auto_subnet
 
     gateway_ip = f"{subnet_prefix}.1"
     devices = scan_network_native(subnet_prefix)
@@ -180,6 +205,8 @@ def get_network_data():
         edges.append({'from': 'router', 'to': node_id})
 
     return jsonify({
+        'detected_ip': auto_ip,
+        'scanned_subnet': subnet_prefix,
         'total_devices': len(devices),
         'nodes': nodes, 
         'edges': edges
@@ -199,4 +226,11 @@ def scan_device_ports(ip):
     return jsonify({'ip': ip, 'open_ports': open_ports})
 
 if __name__ == '__main__':
+    # অ্যাপ স্টার্ট হলেই প্রথমে IP ও Subnet টার্মিনালে প্রিন্ট করবে
+    my_ip, my_subnet = detect_active_local_ip()
+    print("="*50)
+    print(f" Your Active Local IP : {my_ip}")
+    print(f" Auto Scanning Subnet: {my_subnet}.1 to {my_subnet}.254")
+    print("="*50)
+    
     app.run(debug=True, host='0.0.0.0', port=5000)
