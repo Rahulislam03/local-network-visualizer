@@ -3,6 +3,7 @@ import socket
 import subprocess
 import time
 import concurrent.futures
+import sys
 
 app = Flask(__name__)
 
@@ -13,10 +14,7 @@ COMMON_PORTS = {
 }
 
 def detect_active_local_ip():
-    """
-    macOS-এ সক্রিয় ওয়াইফাই/নেটওয়ার্কের আসল লোকাল IP ও সাবনেট নির্ভুলভাবে বের করার লজিক
-    """
-    # মেথড ১: রাউট ট্র্যাকিং (macOS default gateway)
+    """স্বয়ংক্রিয়ভাবে একটিভ লোকাল IP ও সাবনেট প্রিফিক্স খোঁজার ফাংশন"""
     try:
         s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         s.connect(("1.1.1.1", 80))
@@ -28,7 +26,6 @@ def detect_active_local_ip():
     except Exception:
         pass
 
-    # মেথড ২: macOS route get command দিয়ে একটিভ আইপি খোঁজা
     try:
         cmd = "route -n get default | grep interface | awk '{print $2}'"
         iface = subprocess.check_output(cmd, shell=True).decode('utf-8').strip()
@@ -41,18 +38,7 @@ def detect_active_local_ip():
     except Exception:
         pass
 
-    # মেথড ৩: ifconfig দিয়ে ১৯২.১৬৮ সিরিজ ফিল্টার করা
-    try:
-        cmd = "ifconfig | grep 'inet ' | grep -v '127.0.0.1' | awk '{print $2}'"
-        ips = subprocess.check_output(cmd, shell=True).decode('utf-8').strip().splitlines()
-        for ip in ips:
-            if ip.startswith("192.168.") or ip.startswith("10.") or ip.startswith("172."):
-                subnet = ".".join(ip.split(".")[:3])
-                return ip, subnet
-    except Exception:
-        pass
-
-    # ফ্যালব্যাক হিসেবে আপনার জানা সাবনেট
+    # ফ্যালব্যাক ডিফল্ট
     return "192.168.68.54", "192.168.68"
 
 def grab_banner(ip, port):
@@ -156,7 +142,8 @@ def get_network_data():
         else:
             subnet_prefix = val
     else:
-        subnet_prefix = auto_subnet
+        # যদি টার্মিনাল থেকে প্রারম্ভিক IP দিয়ে চালানো হয়ে থাকে
+        subnet_prefix = CURRENT_ACTIVE_SUBNET if 'CURRENT_ACTIVE_SUBNET' in globals() else auto_subnet
 
     gateway_ip = f"{subnet_prefix}.1"
     devices = scan_network_native(subnet_prefix)
@@ -208,9 +195,24 @@ def scan_device_ports(ip):
     return jsonify({'ip': ip, 'open_ports': open_ports})
 
 if __name__ == '__main__':
-    my_ip, my_subnet = detect_active_local_ip()
+    # টার্মিনাল আর্গুমেন্ট হ্যান্ডলিং
+    if len(sys.argv) > 1:
+        user_input = sys.argv[1].strip()
+        if user_input.count('.') == 3:
+            my_ip = user_input
+            my_subnet = ".".join(user_input.split(".")[:3])
+        else:
+            my_subnet = user_input
+            my_ip = f"{my_subnet}.54"
+        print(f"[!] Custom Terminal Input -> IP: {my_ip} | Subnet: {my_subnet}")
+    else:
+        my_ip, my_subnet = detect_active_local_ip()
+
+    CURRENT_ACTIVE_SUBNET = my_subnet
+
     print("="*50)
-    print(f" Detected Active IP : {my_ip}")
-    print(f" Scanning Subnet   : {my_subnet}.1 - {my_subnet}.254")
+    print(f" Target Active IP : {my_ip}")
+    print(f" Scanning Subnet  : {my_subnet}.1 - {my_subnet}.254")
     print("="*50)
+    
     app.run(debug=True, host='0.0.0.0', port=5000)
