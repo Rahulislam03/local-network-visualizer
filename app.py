@@ -1,4 +1,4 @@
-from flask import Flask, render_template, jsonify
+from flask import Flask, render_template, jsonify, request
 import socket
 import subprocess
 import time
@@ -23,18 +23,15 @@ COMMON_PORTS = {
 }
 
 def get_current_subnet():
-    """ডিভাইসটি বর্তমানে যে লোকাল নেটওয়ার্কে কানেক্টেড তার সাবনেট প্রিফিক্স (যেমন: 192.168.1) বের করে"""
+    """অটোমেটিক বর্তমান কানেক্টেড সাবনেট বের করার ব্যাকআপ ফাংশন"""
     try:
         s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-        # পাবলিক DNS IP-তে কানেক্ট করে লোকাল IP অ্যাড্রেস জানা
         s.connect(("8.8.8.8", 80))
         local_ip = s.getsockname()[0]
         s.close()
-        # IP-এর প্রথম ৩টি অংশ নিয়ে Subnet Prefix গঠন (যেমন: 192.168.1.15 -> 192.168.1)
-        subnet_prefix = ".".join(local_ip.split(".")[:3])
-        return subnet_prefix
+        return ".".join(local_ip.split(".")[:3])
     except Exception:
-        return "192.168.0"  # ব্যাকআপ হিসেবে ডিফল্ট আইপি
+        return "192.168.0"
 
 def grab_banner(ip, port):
     service_name = COMMON_PORTS.get(port, 'Unknown Service')
@@ -139,10 +136,20 @@ def index():
 
 @app.route('/api/network-data')
 def get_network_data():
-    # ডাইনামিকভাবে কানেক্টেড নেটওয়ার্কের সাবনেট নেওয়া
-    subnet_prefix = get_current_subnet()
-    gateway_ip = f"{subnet_prefix}.1"
+    # ইউজার যদি ম্যানুয়ালি IP বা Subnet পাস করে (যেমন: /api/network-data?subnet=10.0.0)
+    manual_subnet = request.args.get('subnet')
+    manual_ip = request.args.get('ip')
     
+    if manual_subnet:
+        subnet_prefix = manual_subnet.strip()
+    elif manual_ip:
+        # যদি পুরো IP দেন (যেমন: 192.168.1.50) সেখান থেকে Subnet আলাদা করা
+        subnet_prefix = ".".join(manual_ip.strip().split(".")[:3])
+    else:
+        # কিছুই না দিলে স্বয়ংক্রিয়ভাবে কারেন্ট ওয়াইফাই নেটওয়ার্ক স্ক্যান করবে
+        subnet_prefix = get_current_subnet()
+
+    gateway_ip = f"{subnet_prefix}.1"
     devices = scan_network_native(subnet_prefix)
     
     nodes = [{
@@ -180,7 +187,6 @@ def get_network_data():
 
 @app.route('/api/scan-ports/<ip>')
 def scan_device_ports(ip):
-    """১ থেকে ১০২৪ পোর্টে মাল্টি-থ্রেডেড স্পিড স্ক্যান"""
     open_ports = []
     ports_to_scan = [(ip, p) for p in range(1, 1025)]
     
